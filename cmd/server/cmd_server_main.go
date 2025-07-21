@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -70,7 +71,7 @@ func main() {
 	}
 	defer db.Close()
 
-	http.HandleFunc("/logdata/", handlePostLogData(db))
+	http.HandleFunc("/logdata", handlePostLogData(db))
 	http.HandleFunc("/getdata", handleGetLogData(db))
 
 	log.Printf("Starting server on :%s", port)
@@ -81,29 +82,35 @@ func main() {
 
 func handlePostLogData(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received %s request to %s", r.Method, r.URL.Path)
 		if r.Method != http.MethodPost {
+			log.Printf("Method not allowed: %s", r.Method)
 			http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
 		account := r.Header.Get("X-Account")
 		if account == "" {
+			log.Printf("Missing X-Account header")
 			http.Error(w, `{"error":"X-Account header required"}`, http.StatusBadRequest)
 			return
 		}
 
 		var logData LogData
 		if err := json.NewDecoder(r.Body).Decode(&logData); err != nil {
+			log.Printf("Invalid request body: %v", err)
 			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
 			return
 		}
 
 		if err := logData.Validate(); err != nil {
+			log.Printf("Validation failed: %v", err)
 			http.Error(w, fmt.Sprintf(`{"error":"Validation failed: %v"}`, err), http.StatusBadRequest)
 			return
 		}
 
 		if logData.Account != account {
+			log.Printf("Account mismatch: body=%s, header=%s", logData.Account, account)
 			http.Error(w, `{"error":"Account in body must match X-Account header"}`, http.StatusBadRequest)
 			return
 		}
@@ -127,7 +134,9 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 
 func handleGetLogData(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received %s request to %s", r.Method, r.URL.Path)
 		if r.Method != http.MethodGet {
+			log.Printf("Method not allowed: %s", r.Method)
 			http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
 			return
 		}
@@ -135,6 +144,7 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 		query := r.URL.Query()
 		account := query.Get("account")
 		if account == "" {
+			log.Printf("Missing account query parameter")
 			http.Error(w, `{"error":"Account query parameter required"}`, http.StatusBadRequest)
 			return
 		}
