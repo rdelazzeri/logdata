@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS logData (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contract TEXT NOT NULL,
+    system TEXT NOT NULL,
+    user TEXT NOT NULL,
+    module TEXT NOT NULL,
+    task TEXT NOT NULL,
+    timestamp DATETIME NOT NULL,
+    msg TEXT NOT NULL,
+    level INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_contract ON logData(contract);
+CREATE INDEX IF NOT EXISTS idx_system ON logData(system);
+CREATE INDEX IF NOT EXISTS idx_user ON logData(user);

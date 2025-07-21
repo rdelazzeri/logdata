@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  log-server:
+    build: .
+    ports:
+      - "8015:8015"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_PATH=${DATABASE_PATH}
+      - PORT=${PORT}
+      - CONTRACT_SECRET_KEYS=${CONTRACT_SECRET_KEYS}
+    volumes:
+      - db-data:/app/data
+      - ./sql:/app/sql
+    restarts: unless-stopped
+
+volumes:
+  db-data:
