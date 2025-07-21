@@ -60,15 +60,9 @@ func main() {
 
 	dbPath := os.Getenv("DATABASE_PATH")
 	port := os.Getenv("PORT")
-	accountSecretKeysJSON := os.Getenv("ACCOUNT_SECRET_KEYS")
 
-	if dbPath == "" || port == "" || accountSecretKeysJSON == "" {
-		log.Fatal("Missing required environment variables: DATABASE_PATH, PORT, or ACCOUNT_SECRET_KEYS")
-	}
-
-	var accountSecretKeys map[string]string
-	if err := json.Unmarshal([]byte(accountSecretKeysJSON), &accountSecretKeys); err != nil {
-		log.Fatalf("Failed to parse ACCOUNT_SECRET_KEYS: %v", err)
+	if dbPath == "" || port == "" {
+		log.Fatal("Missing required environment variables: DATABASE_PATH or PORT")
 	}
 
 	db, err := sql.Open("sqlite3", dbPath)
@@ -77,8 +71,8 @@ func main() {
 	}
 	defer db.Close()
 
-	http.HandleFunc("/logdata/", authMiddleware(accountSecretKeys, handlePostLogData(db)))
-	http.HandleFunc("/getdata", authMiddleware(accountSecretKeys, handleGetLogData(db)))
+	http.HandleFunc("/logdata/", handlePostLogData(db))
+	http.HandleFunc("/getdata", handleGetLogData(db))
 
 	log.Printf("Starting server on :%s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
@@ -86,44 +80,16 @@ func main() {
 	}
 }
 
-// authMiddleware checks if the provided secret key matches the account in the request.
-func authMiddleware(accountSecretKeys map[string]string, handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") {
-			http.Error(w, `{"error":"Invalid or missing Authorization header"}`, http.StatusUnauthorized)
-			return
-		}
-		secretKey := strings.TrimPrefix(authHeader, "Bearer ")
-
-		var account string
-		if r.Method == http.MethodPost {
-			account = r.Header.Get("X-Account")
-			if account == "" {
-				http.Error(w, `{"error":"X-Account header required"}`, http.StatusBadRequest)
-				return
-			}
-		} else if r.Method == http.MethodGet {
-			account = r.URL.Query().Get("account")
-			if account == "" {
-				http.Error(w, `{"error":"Account query parameter required"}`, http.StatusBadRequest)
-				return
-			}
-		}
-
-		if expectedKey, ok := accountSecretKeys[account]; !ok || secretKey != expectedKey {
-			http.Error(w, `{"error":"Unauthorized: Invalid secret key for account"}`, http.StatusUnauthorized)
-			return
-		}
-
-		handler(w, r)
-	}
-}
-
 func handlePostLogData(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		account := r.Header.Get("X-Account")
+		if account == "" {
+			http.Error(w, `{"error":"X-Account header required"}`, http.StatusBadRequest)
 			return
 		}
 
@@ -138,7 +104,6 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		account := r.Header.Get("X-Account")
 		if logData.Account != account {
 			http.Error(w, `{"error":"Account in body must match X-Account header"}`, http.StatusBadRequest)
 			return
@@ -169,8 +134,14 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 		}
 
 		query := r.URL.Query()
+		account := query.Get("account")
+		if account == "" {
+			http.Error(w, `{"error":"Account query parameter required"}`, http.StatusBadRequest)
+			return
+		}
+
 		params := QueryParams{
-			Account:   query.Get("account"),
+			Account:   account,
 			System:    query.Get("system"),
 			User:      query.Get("user"),
 			Module:    query.Get("module"),
