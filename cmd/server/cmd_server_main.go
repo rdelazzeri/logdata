@@ -19,7 +19,7 @@ import (
 // LogData represents a log entry in the logData table.
 type LogData struct {
 	ID        *int64    `json:"id,omitempty"`
-	Contract  string    `json:"contract"`
+	Account   string    `json:"account"`
 	System    string    `json:"system"`
 	User      string    `json:"user"`
 	Module    string    `json:"module"`
@@ -31,7 +31,7 @@ type LogData struct {
 
 // Validate ensures LogData has required fields.
 func (l LogData) Validate() error {
-	if l.Contract == "" || l.System == "" || l.User == "" || l.Module == "" || l.Task == "" || l.Msg == "" {
+	if l.Account == "" || l.System == "" || l.User == "" || l.Module == "" || l.Task == "" || l.Msg == "" {
 		return fmt.Errorf("missing required fields")
 	}
 	if l.Timestamp.IsZero() {
@@ -42,7 +42,7 @@ func (l LogData) Validate() error {
 
 // QueryParams represents query parameters for GET /getdata.
 type QueryParams struct {
-	Contract  string `json:"contract"`
+	Account  string `json:"account"`
 	System    string `json:"system"`
 	User      string `json:"user"`
 	Module    string `json:"module"`
@@ -62,15 +62,15 @@ func main() {
 
 	dbPath := os.Getenv("DATABASE_PATH")
 	port := os.Getenv("PORT")
-	contractSecretKeysJSON := os.Getenv("CONTRACT_SECRET_KEYS")
+	accountSecretKeysJSON := os.Getenv("ACCOUNT_SECRET_KEYS")
 
-	if dbPath == "" || port == "" || contractSecretKeysJSON == "" {
-		log.Fatal("Missing required environment variables: DATABASE_PATH, PORT, or CONTRACT_SECRET_KEYS")
+	if dbPath == "" || port == "" || accountSecretKeysJSON == "" {
+		log.Fatal("Missing required environment variables: DATABASE_PATH, PORT, or ACCOUNT_SECRET_KEYS")
 	}
 
-	var contractSecretKeys map[string]string
-	if err := json.Unmarshal([]byte(contractSecretKeysJSON), &contractSecretKeys); err != nil {
-		log.Fatalf("Failed to parse CONTRACT_SECRET_KEYS: %v", err)
+	var accountSecretKeys map[string]string
+	if err := json.Unmarshal([]byte(accountSecretKeysJSON), &accountSecretKeys); err != nil {
+		log.Fatalf("Failed to parse ACCOUNT_SECRET_KEYS: %v", err)
 	}
 
 	db, err := sql.Open("sqlite3", dbPath)
@@ -79,8 +79,8 @@ func main() {
 	}
 	defer db.Close()
 
-	http.HandleFunc("/logdata/", authMiddleware(contractSecretKeys, handlePostLogData(db)))
-	http.HandleFunc("/getdata", authMiddleware(contractSecretKeys, handleGetLogData(db)))
+	http.HandleFunc("/logdata/", authMiddleware(accountSecretKeys, handlePostLogData(db)))
+	http.HandleFunc("/getdata", authMiddleware(accountSecretKeys, handleGetLogData(db)))
 
 	log.Printf("Starting server on :%s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
@@ -88,8 +88,8 @@ func main() {
 	}
 }
 
-// authMiddleware checks if the provided secret key matches the contract in the request.
-func authMiddleware(contractSecretKeys map[string]string, handler http.HandlerFunc) http.HandlerFunc {
+// authMiddleware checks if the provided secret key matches the account in the request.
+func authMiddleware(accountSecretKeys map[string]string, handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if !strings.HasPrefix(authHeader, "Bearer ") {
@@ -98,9 +98,9 @@ func authMiddleware(contractSecretKeys map[string]string, handler http.HandlerFu
 		}
 		secretKey := strings.TrimPrefix(authHeader, "Bearer ")
 
-		var contract string
+		var account string
 		if r.Method == http.MethodPost {
-			// Read body for contract validation
+			// Read body for account validation
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				http.Error(w, `{"error":"Failed to read request body"}`, http.StatusBadRequest)
@@ -114,17 +114,17 @@ func authMiddleware(contractSecretKeys map[string]string, handler http.HandlerFu
 				http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
 				return
 			}
-			contract = logData.Contract
+			account = logData.Account
 		} else if r.Method == http.MethodGet {
-			contract = r.URL.Query().Get("contract")
-			if contract == "" {
-				http.Error(w, `{"error":"Contract query parameter required"}`, http.StatusBadRequest)
+			account = r.URL.Query().Get("account")
+			if account == "" {
+				http.Error(w, `{"error":"Account query parameter required"}`, http.StatusBadRequest)
 				return
 			}
 		}
 
-		if expectedKey, ok := contractSecretKeys[contract]; !ok || secretKey != expectedKey {
-			http.Error(w, `{"error":"Unauthorized: Invalid secret key for contract"}`, http.StatusUnauthorized)
+		if expectedKey, ok := accountSecretKeys[account]; !ok || secretKey != expectedKey {
+			http.Error(w, `{"error":"Unauthorized: Invalid secret key for account"}`, http.StatusUnauthorized)
 			return
 		}
 
@@ -152,9 +152,9 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 		}
 
 		_, err := db.Exec(
-			`INSERT INTO logData (contract, system, user, module, task, timestamp, msg, level)
+			`INSERT INTO logData (account, system, user, module, task, timestamp, msg, level)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			logData.Contract, logData.System, logData.User, logData.Module,
+			logData.Account, logData.System, logData.User, logData.Module,
 			logData.Task, logData.Timestamp, logData.Msg, logData.Level,
 		)
 		if err != nil {
@@ -177,7 +177,7 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 
 		query := r.URL.Query()
 		params := QueryParams{
-			Contract:  query.Get("contract"),
+			Account:  query.Get("account"),
 			System:    query.Get("system"),
 			User:      query.Get("user"),
 			Module:    query.Get("module"),
@@ -205,8 +205,8 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		sqlQuery := "SELECT id, contract, system, user, module, task, timestamp, msg, level FROM logData WHERE contract = ?"
-		args := []interface{}{params.Contract}
+		sqlQuery := "SELECT id, account, system, user, module, task, timestamp, msg, level FROM logData WHERE account = ?"
+		args := []interface{}{params.Account}
 		if params.System != "" {
 			sqlQuery += " AND system = ?"
 			args = append(args, params.System)
@@ -255,7 +255,7 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 		for rows.Next() {
 			var logData LogData
 			var id int64
-			if err := rows.Scan(&id, &logData.Contract, &logData.System, &logData.User,
+			if err := rows.Scan(&id, &logData.Account, &logData.System, &logData.User,
 				&logData.Module, &logData.Task, &logData.Timestamp, &logData.Msg, &logData.Level); err != nil {
 				log.Printf("Error scanning row: %v", err)
 				continue

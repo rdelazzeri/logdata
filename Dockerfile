@@ -23,7 +23,7 @@ COPY .env .
 
 ENV DATABASE_PATH=/app/data/logdata.db
 ENV PORT=8015
-ENV CONTRACT_SECRET_KEYS='{"cont123":"secret123","cont456":"secret456"}'
+ENV ACCOUNT_SECRET_KEYS='{"account1":"acc_secret1","cont456":"secret456"}'
 
 VOLUME /app/data
 EXPOSE 8015

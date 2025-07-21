@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS logData (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contract TEXT NOT NULL,
+    account TEXT NOT NULL,
     system TEXT NOT NULL,
     user TEXT NOT NULL,
     module TEXT NOT NULL,
@@ -10,6 +10,6 @@ CREATE TABLE IF NOT EXISTS logData (
     level INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_contract ON logData(contract);
+CREATE INDEX IF NOT EXISTS idx_account ON logData(account);
 CREATE INDEX IF NOT EXISTS idx_system ON logData(system);
 CREATE INDEX IF NOT EXISTS idx_user ON logData(user);

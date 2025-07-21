@@ -10,11 +10,19 @@ services:
     environment:
       - DATABASE_PATH=${DATABASE_PATH}
       - PORT=${PORT}
-      - CONTRACT_SECRET_KEYS=${CONTRACT_SECRET_KEYS}
+      - ACCOUNT_SECRET_KEYS=${ACCOUNT_SECRET_KEYS}
     volumes:
       - db-data:/app/data
       - ./sql:/app/sql
-    restarts: unless-stopped
+    restart: unless-stopped
+    networks:
+      - sbc-net
 
 volumes:
   db-data:
+
+networks:
+  sbc-net:
+    driver: bridge
+    name: sbc-net
+    external: true
