@@ -42,7 +42,7 @@ func (l LogData) Validate() error {
 
 // QueryParams represents query parameters for GET /getdata.
 type QueryParams struct {
-	Account  string `json:"account"`
+	Account   string `json:"account"`
 	System    string `json:"system"`
 	User      string `json:"user"`
 	Module    string `json:"module"`
@@ -100,22 +100,14 @@ func authMiddleware(accountSecretKeys map[string]string, handler http.HandlerFun
 
 		var account string
 		if r.Method == http.MethodPost {
-			// Read body for account validation
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, `{"error":"Failed to read request body"}`, http.StatusBadRequest)
+			// Extract account from X-Account header
+			account = r.Header.Get("X-Account")
+			if account == "" {
+				http.Error(w, `{"error":"X-Account header required"}`, http.StatusBadRequest)
 				return
 			}
-			// Restore body for handler
-			r.Body = io.NopCloser(bytes.NewReader(body))
-
-			var logData LogData
-			if err := json.Unmarshal(body, &logData); err != nil {
-				http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
-				return
-			}
-			account = logData.Account
 		} else if r.Method == http.MethodGet {
+			// Extract account from query parameter
 			account = r.URL.Query().Get("account")
 			if account == "" {
 				http.Error(w, `{"error":"Account query parameter required"}`, http.StatusBadRequest)
@@ -151,6 +143,13 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		// Ensure the account in the body matches the X-Account header
+		account := r.Header.Get("X-Account")
+		if logData.Account != account {
+			http.Error(w, `{"error":"Account in body must match X-Account header"}`, http.StatusBadRequest)
+			return
+		}
+
 		_, err := db.Exec(
 			`INSERT INTO logData (account, system, user, module, task, timestamp, msg, level)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -177,13 +176,16 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 
 		query := r.URL.Query()
 		params := QueryParams{
-			Account:  query.Get("account"),
+			Account:   query.Get("account"),
 			System:    query.Get("system"),
 			User:      query.Get("user"),
 			Module:    query.Get("module"),
 			Task:      query.Get("task"),
+			Level:     nil,
 			StartTime: query.Get("start_time"),
 			EndTime:   query.Get("end_time"),
+			Limit:     nil,
+			Offset:    nil,
 		}
 
 		var level int
