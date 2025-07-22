@@ -210,7 +210,7 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 			sqlQuery += " AND timestamp <= ?"
 			args = append(args, params.EndTime)
 		}
-		sqlQuery += " ORDER BY timestamp DESC"
+		sqlQuery += " ORDER BY id DESC"
 		if params.Limit != nil {
 			sqlQuery += fmt.Sprintf(" LIMIT %d", *params.Limit)
 		}
