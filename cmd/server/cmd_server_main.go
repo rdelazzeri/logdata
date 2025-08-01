@@ -15,15 +15,16 @@ import (
 
 // LogData represents a log entry in the logData table.
 type LogData struct {
-	ID        *int64    `json:"id,omitempty"`
-	Account   string    `json:"account"`
-	System    string    `json:"system"`
-	User      string    `json:"user"`
-	Module    string    `json:"module"`
-	Task      string    `json:"task"`
-	Timestamp time.Time `json:"timestamp"`
-	Msg       string    `json:"msg"`
-	Level     int       `json:"level"`
+	ID         *int64    `json:"id,omitempty"`
+	Account    string    `json:"account"`
+	System     string    `json:"system"`
+	User       string    `json:"user"`
+	Module     string    `json:"module"`
+	Task       string    `json:"task"`
+	Timestamp  time.Time `json:"timestamp"`
+	Msg        string    `json:"msg"`
+	Level      int       `json:"level"`
+	StackTrace string    `json:"stack_trace"`
 }
 
 // Validate ensures LogData has required fields.
@@ -115,11 +116,12 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 		}
 
 		_, err := db.Exec(
-			`INSERT INTO logData (account, system, user, module, task, timestamp, msg, level)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO logData (account, system, user, module, task, timestamp, msg, level, stack_trace)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			logData.Account, logData.System, logData.User, logData.Module,
-			logData.Task, logData.Timestamp, logData.Msg, logData.Level,
+			logData.Task, logData.Timestamp, logData.Msg, logData.Level, logData.StackTrace,
 		)
+
 		if err != nil {
 			log.Printf("Error saving log data: %v", err)
 			http.Error(w, `{"error":"Failed to save log data"}`, http.StatusInternalServerError)
@@ -180,7 +182,7 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		sqlQuery := "SELECT id, account, system, user, module, task, timestamp, msg, level FROM logData WHERE account = ?"
+		sqlQuery := "SELECT id, account, system, user, module, task, timestamp, msg, level, stack_trace FROM logData WHERE account = ?"
 		args := []interface{}{params.Account}
 		if params.System != "" {
 			sqlQuery += " AND system = ?"
@@ -230,12 +232,16 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 		for rows.Next() {
 			var logData LogData
 			var id int64
+			var stackTrace sql.NullString
+
 			if err := rows.Scan(&id, &logData.Account, &logData.System, &logData.User,
-				&logData.Module, &logData.Task, &logData.Timestamp, &logData.Msg, &logData.Level); err != nil {
+				&logData.Module, &logData.Task, &logData.Timestamp, &logData.Msg, &logData.Level, &stackTrace); err != nil {
 				log.Printf("Error scanning row: %v", err)
 				continue
 			}
+
 			logData.ID = &id
+			logData.StackTrace = stackTrace.String
 			logs = append(logs, logData)
 		}
 
