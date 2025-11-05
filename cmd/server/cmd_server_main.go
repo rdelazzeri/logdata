@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -71,7 +73,14 @@ func main() {
 	}
 	defer db.Close()
 
+	// Initialize database schema
+	if err := initializeDatabase(db); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+
+	// Handle both /logdata and /logdata/
 	http.HandleFunc("/logdata", handlePostLogData(db))
+	http.HandleFunc("/logdata/", handlePostLogData(db))
 	http.HandleFunc("/getdata", handleGetLogData(db))
 
 	log.Printf("Starting server on :%s", port)
@@ -80,9 +89,60 @@ func main() {
 	}
 }
 
+func initializeDatabase(db *sql.DB) error {
+	// Check if logData table exists
+	var tableExists string
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='logData'").Scan(&tableExists)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check if logData table exists: %v", err)
+	}
+
+	if tableExists != "logData" {
+		// Create table if it doesn't exist
+		sqlStmt, err := os.ReadFile("sql/init.sql")
+		if err != nil {
+			return fmt.Errorf("failed to read init.sql: %v", err)
+		}
+		_, err = db.Exec(string(sqlStmt))
+		if err != nil {
+			return fmt.Errorf("failed to create logData table: %v", err)
+		}
+		log.Println("Created logData table")
+	} else {
+		log.Println("logData table already exists")
+	}
+
+	// Check if stack_trace column exists
+	var columnExists string
+	err = db.QueryRow("SELECT name FROM pragma_table_info('logData') WHERE name='stack_trace'").Scan(&columnExists)
+	if err == sql.ErrNoRows {
+		// Add stack_trace column
+		_, err = db.Exec("ALTER TABLE logData ADD COLUMN stack_trace TEXT")
+		if err != nil {
+			return fmt.Errorf("failed to add stack_trace column: %v", err)
+		}
+		log.Println("Added stack_trace column to logData table")
+	} else if err != nil {
+		return fmt.Errorf("failed to check for stack_trace column: %v", err)
+	}
+
+	return nil
+}
+
 func handlePostLogData(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received %s request to %s", r.Method, r.URL.Path)
+		log.Printf("Received %s request to %s with headers: %v", r.Method, r.URL.Path, r.Header)
+
+		// Log raw request body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("Error reading request body: %v", err)
+			http.Error(w, `{"error":"Failed to read request body"}`, http.StatusBadRequest)
+			return
+		}
+		log.Printf("Raw request body: %s", string(body))
+		r.Body = io.NopCloser(strings.NewReader(string(body))) // Restore body for decoding
+
 		if r.Method != http.MethodPost {
 			log.Printf("Method not allowed: %s", r.Method)
 			http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
@@ -99,10 +159,11 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 		var logData LogData
 		if err := json.NewDecoder(r.Body).Decode(&logData); err != nil {
 			log.Printf("Invalid request body: %v", err)
-			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf(`{"error":"Invalid request body: %v"}`, err), http.StatusBadRequest)
 			return
 		}
 
+		log.Printf("Received log data: %+v", logData)
 		if err := logData.Validate(); err != nil {
 			log.Printf("Validation failed: %v", err)
 			http.Error(w, fmt.Sprintf(`{"error":"Validation failed: %v"}`, err), http.StatusBadRequest)
@@ -115,19 +176,19 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		_, err := db.Exec(
+		_, err = db.Exec(
 			`INSERT INTO logData (account, system, user, module, task, timestamp, msg, level, stack_trace)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			logData.Account, logData.System, logData.User, logData.Module,
 			logData.Task, logData.Timestamp, logData.Msg, logData.Level, logData.StackTrace,
 		)
-
 		if err != nil {
 			log.Printf("Error saving log data: %v", err)
 			http.Error(w, `{"error":"Failed to save log data"}`, http.StatusInternalServerError)
 			return
 		}
 
+		log.Printf("Log data saved successfully for account: %s", account)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"message": "Log data saved successfully"})
 	}
@@ -135,7 +196,7 @@ func handlePostLogData(db *sql.DB) http.HandlerFunc {
 
 func handleGetLogData(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received %s request to %s", r.Method, r.URL.Path)
+		log.Printf("Received %s request to %s with query: %v", r.Method, r.URL.Path, r.URL.Query())
 		if r.Method != http.MethodGet {
 			log.Printf("Method not allowed: %s", r.Method)
 			http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
@@ -212,7 +273,7 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 			sqlQuery += " AND timestamp <= ?"
 			args = append(args, params.EndTime)
 		}
-		sqlQuery += " ORDER BY id DESC"
+		sqlQuery += " ORDER BY timestamp DESC"
 		if params.Limit != nil {
 			sqlQuery += fmt.Sprintf(" LIMIT %d", *params.Limit)
 		}
@@ -233,13 +294,11 @@ func handleGetLogData(db *sql.DB) http.HandlerFunc {
 			var logData LogData
 			var id int64
 			var stackTrace sql.NullString
-
 			if err := rows.Scan(&id, &logData.Account, &logData.System, &logData.User,
 				&logData.Module, &logData.Task, &logData.Timestamp, &logData.Msg, &logData.Level, &stackTrace); err != nil {
 				log.Printf("Error scanning row: %v", err)
 				continue
 			}
-
 			logData.ID = &id
 			logData.StackTrace = stackTrace.String
 			logs = append(logs, logData)

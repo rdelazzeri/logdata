@@ -29,4 +29,5 @@ VOLUME /app/data
 EXPOSE 8015
 
 # Initialize the database and start the server
-CMD sh -c "mkdir -p /app/data && sqlite3 /app/data/logdata.db < /app/sql/init.sql && ./log-server"
+#CMD sh -c "mkdir -p /app/data && sqlite3 /app/data/logdata.db < /app/sql/init.sql && ./log-server"
+CMD sh -c "./log-server"
